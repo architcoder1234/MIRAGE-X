@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MIRAGE-X Dashboard</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<a href="#mainContent" class="skip-link">Skip to main content</a>
+
+<header>
+  <div>
+    <h1>MIRAGE<span>-X</span> — Adaptive Cyber Defense Dashboard</h1>
+    <p>Attack Sensor → Attack DNA → Attack-Path → Adaptive Deception → Cyber Memory → AI Defender</p>
+  </div>
+  <div class="header-right">
+    <div class="status-line" aria-live="polite">API: <span id="apiStatus">checking…</span></div>
+    <div class="status-line" aria-live="polite">AI Advisor: <span id="llmStatus">checking…</span></div>
+    <button id="alertsBtn" class="icon-btn" onclick="openAlerts()" aria-haspopup="dialog" title="Simulated SOC alert channel">🔔 Alerts <span id="alertsBadge" class="alerts-badge" hidden>0</span></button>
+    <button id="helpBtn" class="icon-btn" onclick="startOnboarding()" aria-haspopup="dialog" title="Show the guided walkthrough again">❓ Help</button>
+    <button id="settingsBtn" class="icon-btn" onclick="openSettings()" aria-haspopup="dialog" title="Settings & customization">⚙ Settings</button>
+  </div>
+</header>
+
+<!-- TOASTS -->
+<div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+<!-- SETTINGS MODAL -->
+<div id="settingsOverlay" class="modal-overlay" onclick="if(event.target===this) closeSettings()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-header">
+      <h2 id="settingsTitle">Settings</h2>
+      <button class="icon-btn" onclick="closeSettings()" aria-label="Close settings">✕</button>
+    </div>
+
+    <div class="modal-section">
+      <label class="switch-row">
+        <span>
+          <strong>Beginner Mode</strong>
+          <div class="setting-desc">Adds plain-English explanations under every panel so non-technical viewers can follow along.</div>
+        </span>
+        <input type="checkbox" id="beginnerModeToggle" onchange="saveSettings()" />
+      </label>
+    </div>
+
+    <div class="modal-section">
+      <strong id="themeLabel">Theme</strong>
+      <div class="setting-desc">Pick a look, and an accent color used for highlights throughout.</div>
+      <div class="theme-row" role="radiogroup" aria-labelledby="themeLabel">
+        <label class="theme-swatch"><input type="radio" name="theme" value="dark" onchange="saveSettings()"> Dark</label>
+        <label class="theme-swatch"><input type="radio" name="theme" value="light" onchange="saveSettings()"> Light</label>
+      </div>
+      <label for="accentInput" class="setting-desc" style="display:block; margin-top:10px;">Accent color</label>
+      <input type="color" id="accentInput" value="#4fd1c5" onchange="saveSettings()" />
+    </div>
+
+    <div class="modal-section">
+      <strong>Visible panels</strong>
+      <div class="setting-desc">Turn off anything you don't need for this demo/audience.</div>
+      <label class="check-row"><input type="checkbox" id="panel_evidence" onchange="saveSettings()"> Decoy Evidence</label>
+      <label class="check-row"><input type="checkbox" id="panel_path" onchange="saveSettings()"> Predicted Attack Path</label>
+      <label class="check-row"><input type="checkbox" id="panel_mitre" onchange="saveSettings()"> MITRE ATT&CK Techniques</label>
+      <label class="check-row"><input type="checkbox" id="panel_advisor" onchange="saveSettings()"> AI Advisor</label>
+    </div>
+
+    <div class="modal-section">
+      <strong>AI Advisor API key</strong>
+      <div class="setting-desc">
+        Optional. Paste an Anthropic API key to get live, LLM-generated summaries and
+        Q&amp;A on top of the rule-based engine. Without a key, the AI Advisor panel still
+        works — it shows a rule-based advisory built from the same risk score, decoy
+        decision, and MITRE mapping instead. Stored only in this browser.
+      </div>
+      <label for="apiKeyInput" class="sr-only">Anthropic API key</label>
+      <input type="password" id="apiKeyInput" placeholder="sk-ant-..." onchange="saveSettings()" />
+      <div id="keyStatus" class="setting-desc"></div>
+    </div>
+
+    <div class="modal-section">
+      <button class="secondary-btn" onclick="resetSettings()">Reset to defaults</button>
+    </div>
+  </div>
+</div>
+
+<!-- SIMULATED ALERT CHANNEL MODAL -->
+<div id="alertsOverlay" class="modal-overlay" onclick="if(event.target===this) closeAlerts()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="alertsTitle">
+    <div class="modal-header">
+      <h2 id="alertsTitle">Simulated SOC Alert Channel</h2>
+      <button class="icon-btn" onclick="closeAlerts()" aria-label="Close alert channel">✕</button>
+    </div>
+    <p class="setting-desc">
+      Every incident that crosses the paging threshold gets a message here, styled like a
+      Slack channel — <code>#soc-alerts</code>. This is a simulation: nothing is sent to a
+      real Slack workspace. It exists to show what an operational integration would look
+      like, not to fake one.
+    </p>
+    <div id="alertsList" class="alerts-list"></div>
+  </div>
+</div>
+
+<!-- INCIDENT COMPARISON MODAL -->
+<div id="compareOverlay" class="modal-overlay" onclick="if(event.target===this) closeCompare()">
+  <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="compareTitle">
+    <div class="modal-header">
+      <h2 id="compareTitle">Compare Incidents</h2>
+      <button class="icon-btn" onclick="closeCompare()" aria-label="Close comparison">✕</button>
+    </div>
+    <div id="compareBody"><div class="empty">Select two incidents from the list to compare them.</div></div>
+  </div>
+</div>
+
+<!-- ONBOARDING WALKTHROUGH -->
+<div id="onboardOverlay" class="modal-overlay" onclick="if(event.target===this) closeOnboarding()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="onboardTitle">
+    <div class="modal-header">
+      <h2 id="onboardTitle">Welcome to MIRAGE-X</h2>
+      <button class="icon-btn" onclick="closeOnboarding()" aria-label="Skip walkthrough">✕</button>
+    </div>
+    <div id="onboardBody" class="onboard-body"></div>
+    <div class="onboard-controls">
+      <button class="secondary-btn" onclick="onboardPrev()" id="onboardPrevBtn">Back</button>
+      <div id="onboardDots" class="onboard-dots"></div>
+      <button onclick="onboardNext()" id="onboardNextBtn" style="width:auto; padding:8px 16px;">Next</button>
+    </div>
+  </div>
+</div>
+
+<div class="layout" id="mainContent">
+
+  <!-- LEFT: controls + incident list -->
+  <div class="panel">
+    <h2>Run Scenario</h2>
+    <label for="scenarioSelect" class="sr-only">Choose a scenario</label>
+    <select id="scenarioSelect"></select>
+    <button onclick="runScenario()">Launch Simulated Attack</button>
+    <button onclick="resetDemo()" style="background:#3a2020; color:#ffb1b1;">Reset Memory</button>
+
+    <h2 style="margin-top:20px;">Incident Memory</h2>
+    <label for="incidentSearch" class="sr-only">Search incidents</label>
+    <input type="text" id="incidentSearch" placeholder="Search by ID or behavior…" oninput="renderIncidentList()" />
+    <div class="filter-row">
+      <label for="severityFilter" class="sr-only">Filter by risk</label>
+      <select id="severityFilter" onchange="renderIncidentList()">
+        <option value="">All risk levels</option>
+        <option value="HIGH">High risk</option>
+        <option value="MEDIUM">Medium risk</option>
+        <option value="LOW">Low risk</option>
+      </select>
+      <label for="decoyFilter" class="sr-only">Filter by decoy</label>
+      <select id="decoyFilter" onchange="renderIncidentList()">
+        <option value="">Any decoy</option>
+        <option value="__none__">No decoy</option>
+      </select>
+    </div>
+    <div class="compare-row">
+      <span id="compareCount" class="setting-desc">0 selected for comparison</span>
+      <button id="compareBtn" class="secondary-btn" style="width:auto; padding:6px 12px;" onclick="openCompare()" disabled>Compare</button>
+    </div>
+    <div id="incidentList"><div class="empty">No incidents yet — run a scenario.</div></div>
+  </div>
+
+  <!-- CENTER: timeline + evidence -->
+  <div class="panel">
+    <h2 id="centerTitle">Timeline <span class="hint" tabindex="0" title="The exact sequence of actions the system observed, in order.">?</span></h2>
+    <div id="replayControls" class="replay-controls" hidden>
+      <button id="replayPlayBtn" onclick="toggleReplay()" aria-label="Play or pause replay">▶ Replay</button>
+      <input type="range" id="replaySlider" min="0" max="0" value="0" oninput="scrubReplay(this.value)" aria-label="Replay position" />
+      <span id="replayStepLabel" class="setting-desc">0 / 0</span>
+    </div>
+    <div id="timeline"><div class="empty">Select an incident to see its behavior sequence.</div></div>
+
+    <div id="evidenceSection" style="margin-top:20px;">
+      <h2>Decoy Evidence <span class="hint" tabindex="0" title="Real commands the attacker ran against the fake system MIRAGE-X showed them.">?</span></h2>
+      <p class="beginner-note" data-beginner>A "decoy" is a fake service (fake login page, fake database, etc.) that looks real to an attacker but is fully monitored. Anything they do here is logged without risking anything real.</p>
+      <button id="foldBtn" onclick="foldEvidence()" style="background:#1e3a2e; color:var(--low);">Fold Decoy Evidence Into Risk Score</button>
+      <div id="evidence"><div class="empty">No decoy interactions logged.</div></div>
+    </div>
+
+    <div id="pathSection" style="margin-top:20px;">
+      <h2>Predicted Attack Path <span class="hint" tabindex="0" title="Based on where the attacker has already gone, where the system expects them to go next.">?</span></h2>
+      <div id="pathDiagram" class="path-diagram"></div>
+      <div id="pathBox"><div class="empty">Select an incident to see predicted next target.</div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: risk + explanation -->
+  <div class="panel">
+    <h2>Risk & Confidence <span class="hint" tabindex="0" title="Risk = how dangerous the behavior looks. Confidence = how well it matches something already seen before. These are different things.">?</span></h2>
+    <p class="beginner-note" data-beginner>Risk score (0-100) measures how dangerous this looks on its own. Confidence measures whether the system has seen this exact pattern before — a brand-new attack can be HIGH risk but LOW confidence at the same time.</p>
+    <div id="riskBox"><div class="empty">—</div></div>
+    <div id="riskTrend" class="risk-trend"></div>
+    <div id="socBanner"></div>
+
+    <h2 style="margin-top:20px;">Deception Decision <span class="hint" tabindex="0" title="Whether a fake service (decoy) was shown to the attacker, and why.">?</span></h2>
+    <div id="decoyBox"><div class="empty">—</div></div>
+
+    <div id="mitreSection" style="margin-top:20px;">
+      <h2>MITRE ATT&CK Techniques <span class="hint" tabindex="0" title="MITRE ATT&CK is an industry-standard catalog of known attacker techniques. Matching to it means this isn't a made-up label — it's a technique real security teams recognize.">?</span></h2>
+      <div id="mitreBox"><div class="empty">—</div></div>
+    </div>
+
+    <h2 style="margin-top:20px;">Explainable AI Defender <span class="hint" tabindex="0" title="A plain-language, evidence-grounded explanation of why the system made the decision it did.">?</span></h2>
+    <div id="summaryBox" class="summary-box"><div class="empty">Run or select an incident to generate an explanation.</div></div>
+    <button id="reportBtn" class="report-btn" onclick="downloadReport()">⬇ Download Incident Report (PDF)</button>
+
+    <div id="advisorSection" style="margin-top:20px;">
+      <h2>AI Advisor <span id="advisorModeBadge" class="mode-badge"></span></h2>
+      <p class="beginner-note" data-beginner>This panel uses an AI model to turn the numbers above into a short summary and next steps. It never changes the risk score or decision — it only explains them.</p>
+      <div id="advisorBox"><div class="empty">Select an incident to get an AI-generated summary.</div></div>
+      <div class="ask-row">
+        <label for="askInput" class="sr-only">Ask a question about this incident</label>
+        <input type="text" id="askInput" placeholder="Ask a question about this incident…" onkeydown="if(event.key==='Enter') askAdvisor();" />
+        <button onclick="askAdvisor()" style="width:auto; padding:8px 14px;">Ask</button>
+      </div>
+      <div id="askHistory"></div>
+
+      <div class="correlation-block">
+        <h3>Cross-Incident Correlation <span class="hint" tabindex="0" title="Looks across every incident in memory at once, to spot patterns a single-incident view can't (e.g. the same attacker returning).">?</span></h3>
+        <div class="ask-row">
+          <label for="correlateInput" class="sr-only">Ask across all incidents</label>
+          <input type="text" id="correlateInput" placeholder="Ask across ALL incidents (optional — leave blank for a general check)…" onkeydown="if(event.key==='Enter') runCorrelation();" />
+          <button onclick="runCorrelation()" style="width:auto; padding:8px 14px;">Analyze</button>
+        </div>
+        <div id="correlationBox"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

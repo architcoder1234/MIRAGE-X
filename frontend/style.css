@@ -1,0 +1,306 @@
+:root {
+  --bg: #0b0f14;
+  --panel: #121821;
+  --border: #223041;
+  --text: #dbe6f0;
+  --muted: #7f92a6;
+  --accent: #4fd1c5;
+  --high: #ff5c5c;
+  --medium: #ffb454;
+  --low: #4fd17e;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+header {
+  padding: 20px 28px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+header h1 { margin: 0; font-size: 20px; letter-spacing: 0.5px; }
+header h1 span { color: var(--accent); }
+header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.layout { display: grid; grid-template-columns: 260px 1fr 340px; gap: 16px; padding: 20px; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.panel h2 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+select, button {
+  width: 100%; padding: 8px; margin-bottom: 8px; border-radius: 6px;
+  border: 1px solid var(--border); background: #0e141c; color: var(--text); font-size: 13px;
+}
+button { background: var(--accent); color: #04211d; font-weight: 600; cursor: pointer; border: none; }
+button:hover { opacity: 0.9; }
+.incident-item {
+  padding: 8px; border-radius: 6px; margin-bottom: 6px; cursor: pointer;
+  border: 1px solid var(--border); font-size: 13px;
+}
+.incident-item:hover { border-color: var(--accent); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+.badge-HIGH { background: rgba(255,92,92,0.15); color: var(--high); }
+.badge-MEDIUM { background: rgba(255,180,84,0.15); color: var(--medium); }
+.badge-LOW { background: rgba(79,209,126,0.15); color: var(--low); }
+.badge-CRITICAL { background: rgba(255,92,92,0.28); color: var(--high); }
+.badge-INFO { background: rgba(127,146,166,0.15); color: var(--muted); }
+.risk-bar-bg { background: #0e141c; border-radius: 6px; height: 10px; overflow: hidden; margin-top: 6px; }
+.risk-bar-fill { height: 100%; background: linear-gradient(90deg, var(--low), var(--medium), var(--high)); }
+.timeline-step {
+  display: flex; align-items: center; gap: 10px; padding: 6px 0;
+  border-left: 2px solid var(--border); padding-left: 12px; margin-left: 4px; font-size: 13px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-left: -17px; }
+.summary-box { font-size: 13px; line-height: 1.6; color: var(--text); }
+.evidence-line { font-family: monospace; font-size: 12px; color: var(--muted); border-bottom: 1px dashed var(--border); padding: 4px 0; }
+.evidence-line.warn { color: var(--medium); }
+.evidence-line.danger { color: var(--high); font-weight: 600; }
+.evidence-line.info { color: var(--accent); }
+.decoy-tag { display: inline-block; margin-top: 6px; padding: 4px 10px; border-radius: 6px; background: #17222f; font-size: 12px; }
+.empty { color: var(--muted); font-size: 13px; }
+.path-chain { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; }
+.path-node { padding: 4px 10px; border-radius: 6px; background: #17222f; border: 1px solid var(--border); }
+.path-node.target { background: rgba(255,180,84,0.15); border-color: var(--medium); color: var(--medium); }
+.path-arrow { color: var(--muted); }
+.path-reason { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.badge-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.soc-banner {
+  margin-top: 10px; padding: 8px 12px; border-radius: 6px; font-size: 12px;
+  border: 1px solid var(--border);
+}
+.soc-banner.page { background: rgba(255,92,92,0.12); border-color: var(--high); color: var(--high); font-weight: 600; }
+.soc-banner.noage { background: #0e141c; color: var(--muted); }
+
+.mitre-tag {
+  display: inline-block; margin: 3px 4px 3px 0; padding: 2px 8px; border-radius: 5px;
+  background: #17222f; border: 1px solid var(--border); font-size: 11px; color: var(--accent);
+  font-family: monospace;
+}
+
+.report-btn {
+  background: #17222f; color: var(--text); border: 1px solid var(--border);
+  margin-top: 10px;
+}
+.report-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- header / status ---------- */
+.header-right { display: flex; align-items: center; gap: 14px; }
+.status-line { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.icon-btn {
+  width: auto; margin: 0; padding: 7px 12px; background: #17222f; color: var(--text);
+  border: 1px solid var(--border); font-size: 13px;
+}
+.icon-btn:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+
+/* ---------- tooltips / beginner mode ---------- */
+.hint {
+  display: inline-block; width: 15px; height: 15px; line-height: 15px; text-align: center;
+  border-radius: 50%; background: #17222f; border: 1px solid var(--border); color: var(--muted);
+  font-size: 10px; cursor: help; margin-left: 4px; user-select: none; vertical-align: middle;
+}
+.hint:hover { border-color: var(--accent); color: var(--accent); }
+.beginner-note {
+  display: none; margin: -6px 0 10px; font-size: 12px; line-height: 1.5;
+  color: var(--muted); background: #0e141c; border: 1px dashed var(--border);
+  border-radius: 6px; padding: 8px 10px;
+}
+body.beginner-mode .beginner-note { display: block; }
+
+/* ---------- settings modal ---------- */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(4,8,12,0.7);
+  align-items: center; justify-content: center; z-index: 100;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  width: 420px; max-width: 92vw; max-height: 86vh; overflow-y: auto; padding: 20px 22px;
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.modal-header h2 { margin: 0; font-size: 16px; }
+.modal-header .icon-btn { padding: 4px 9px; }
+.modal-section { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.modal-section:last-child { border-bottom: none; padding-bottom: 0; }
+.setting-desc { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.5; }
+.switch-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; cursor: pointer; }
+.switch-row input[type="checkbox"] { width: 34px; height: 18px; flex-shrink: 0; margin-top: 2px; accent-color: var(--accent); }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 8px; cursor: pointer; }
+.check-row input { width: auto; margin: 0; }
+.modal input[type="password"], .modal input[type="text"] {
+  width: 100%; padding: 8px; margin-top: 8px; border-radius: 6px;
+  border: 1px solid var(--border); background: #0e141c; color: var(--text); font-size: 13px;
+}
+.secondary-btn {
+  width: auto; background: #17222f; color: var(--text); border: 1px solid var(--border); padding: 7px 14px;
+}
+.secondary-btn:hover { border-color: var(--high); color: var(--high); opacity: 1; }
+
+/* ---------- AI advisor panel ---------- */
+.mode-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+  margin-left: 6px; text-transform: none; letter-spacing: normal; vertical-align: middle;
+}
+.mode-badge.live { background: rgba(79,209,126,0.15); color: var(--low); }
+.mode-badge.fallback { background: rgba(127,146,166,0.15); color: var(--muted); }
+.advisor-summary { font-size: 13px; line-height: 1.6; }
+.advisor-actions { margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }
+.advisor-note { margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.advisor-note.muted { font-style: italic; }
+.ask-row { display: flex; gap: 8px; margin-top: 12px; }
+.ask-row input {
+  flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: #0e141c; color: var(--text); font-size: 13px; margin: 0;
+}
+#askHistory { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.ask-item { font-size: 12px; }
+.ask-q { color: var(--accent); font-weight: 600; margin-bottom: 3px; }
+.ask-a { color: var(--text); line-height: 1.5; }
+
+/* ---------- attack-path diagram ---------- */
+.path-diagram { margin-bottom: 10px; }
+.graph-svg { width: 100%; height: auto; }
+.graph-edge { stroke: var(--border); stroke-width: 1.5; }
+.graph-edge.active { stroke: var(--medium); stroke-width: 2.5; stroke-dasharray: 5 4; }
+.graph-node circle { fill: #17222f; stroke: var(--border); stroke-width: 1.5; }
+.graph-node.current circle { fill: rgba(79,209,197,0.18); stroke: var(--accent); stroke-width: 2.5; }
+.graph-node.target circle { fill: rgba(255,180,84,0.18); stroke: var(--medium); stroke-width: 2.5; }
+.graph-label { fill: var(--muted); font-size: 9px; }
+.graph-node.current .graph-label { fill: var(--accent); font-weight: 600; }
+.graph-node.target .graph-label { fill: var(--medium); font-weight: 600; }
+
+/* ---------- risk trend sparkline ---------- */
+.risk-trend { margin-top: 10px; }
+.trend-svg { width: 100%; height: 56px; }
+.trend-line { fill: none; stroke: var(--accent); stroke-width: 2; }
+.trend-dot { fill: var(--accent); }
+
+/* ---------- cross-incident correlation ---------- */
+.correlation-block { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.correlation-block h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 700; }
+#correlationBox { margin-top: 10px; }
+#correlationBox .advisor-summary { font-size: 13px; line-height: 1.6; }
+#correlationBox .mode-badge { margin-left: 0; margin-right: 6px; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .header-right { width: 100%; flex-wrap: wrap; }
+  .layout { padding: 12px; gap: 12px; }
+  .panel { padding: 12px; }
+  .modal { width: 100%; max-width: 100%; height: 100%; max-height: 100%; border-radius: 0; }
+  .ask-row { flex-direction: column; }
+  .ask-row button { width: 100%; }
+}
+
+/* ---------- light theme ---------- */
+body.light-theme {
+  --bg: #f4f6f9; --panel: #ffffff; --border: #dde3ea; --text: #1a2430; --muted: #64748b;
+}
+body.light-theme .icon-btn, body.light-theme .report-btn, body.light-theme .secondary-btn,
+body.light-theme .path-node, body.light-theme .decoy-tag, body.light-theme .mitre-tag { background: #eef2f7; }
+body.light-theme select, body.light-theme .ask-row input, body.light-theme .modal input[type="password"],
+body.light-theme .modal input[type="text"], body.light-theme #incidentSearch, body.light-theme .soc-banner.noage,
+body.light-theme .evidence-line { background: #f7f9fc; }
+body.light-theme button:not(.icon-btn):not(.secondary-btn):not(.report-btn) { color: #04211d; }
+
+/* ---------- accessibility ---------- */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+.skip-link {
+  position: absolute; left: -999px; top: 0; background: var(--accent); color: #04211d;
+  padding: 10px 16px; z-index: 1000; border-radius: 0 0 6px 0; font-size: 13px; font-weight: 600;
+}
+.skip-link:focus { left: 0; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+[tabindex]:focus-visible, .incident-click-area:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+/* ---------- toasts ---------- */
+.toast-container {
+  position: fixed; bottom: 20px; right: 20px; z-index: 200;
+  display: flex; flex-direction: column; gap: 8px; max-width: 320px;
+}
+.toast {
+  background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--text);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25); opacity: 1; transition: opacity 0.5s ease;
+}
+.toast-success { border-left-color: var(--low); }
+.toast-warn { border-left-color: var(--medium); }
+.toast-out { opacity: 0; }
+
+/* ---------- theme picker (settings) ---------- */
+.theme-row { display: flex; gap: 14px; margin-top: 8px; }
+.theme-swatch { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.theme-swatch input { width: auto; margin: 0; }
+#accentInput { width: 60px; height: 30px; padding: 2px; margin-top: 4px; cursor: pointer; }
+
+/* ---------- incident search / filter / compare ---------- */
+#incidentSearch { margin-top: 4px; }
+.filter-row { display: flex; gap: 6px; }
+.filter-row select { margin-bottom: 8px; }
+.compare-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.compare-row .secondary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.incident-item { display: flex; align-items: flex-start; gap: 8px; }
+.incident-item.selected { border-color: var(--accent); background: rgba(79,209,197,0.06); }
+.incident-item .compare-check { width: auto; margin: 3px 0 0; flex-shrink: 0; }
+.incident-click-area { flex: 1; cursor: pointer; }
+
+/* ---------- comparison modal ---------- */
+.modal-wide { width: 620px; }
+.compare-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+.compare-table th, .compare-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.compare-table thead th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.compare-table tbody th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.compare-note {
+  margin-top: 14px; padding: 10px 12px; border-radius: 6px; background: rgba(255,180,84,0.08);
+  border: 1px solid var(--border); font-size: 12px; line-height: 1.6; color: var(--text);
+}
+
+/* ---------- replay controls ---------- */
+.replay-controls { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.replay-controls button {
+  width: auto; padding: 6px 12px; background: #17222f; color: var(--text); border: 1px solid var(--border);
+  font-size: 12px; margin: 0;
+}
+.replay-controls input[type="range"] { flex: 1; margin: 0; accent-color: var(--accent); }
+.replay-controls .setting-desc { margin: 0; white-space: nowrap; }
+.timeline-step.future { opacity: 0.35; }
+.timeline-step.current .dot { box-shadow: 0 0 0 4px rgba(79,209,197,0.25); }
+
+/* ---------- simulated alert channel ---------- */
+.alerts-badge {
+  display: inline-block; background: var(--high); color: #fff; border-radius: 20px;
+  font-size: 10px; font-weight: 700; padding: 1px 6px; margin-left: 4px; vertical-align: middle;
+}
+.alerts-list { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.alert-bubble {
+  background: #0e141c; border: 1px solid var(--border); border-left: 3px solid var(--muted);
+  border-radius: 8px; padding: 10px 12px; font-size: 13px;
+}
+.alert-bubble.severity-CRITICAL { border-left-color: var(--high); }
+.alert-bubble.severity-HIGH { border-left-color: var(--medium); }
+.alert-bubble.severity-MEDIUM { border-left-color: #f5d76e; }
+.alert-bubble-head { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
+.alert-bubble-body { line-height: 1.6; }
+
+/* ---------- onboarding walkthrough ---------- */
+.onboard-body { min-height: 110px; padding: 6px 0 10px; }
+.onboard-body h3 { margin: 0 0 8px; font-size: 15px; }
+.onboard-body p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text); }
+.onboard-controls { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.onboard-dots { display: flex; gap: 6px; }
+.onboard-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
+.onboard-dot.active { background: var(--accent); }
+.onboard-controls .secondary-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Ensures .modal-wide's fixed width doesn't win over the full-screen mobile
+   modal rule above — same specificity, so source order decides; this keeps
+   the comparison modal full-width on small screens too. */
+@media (max-width: 640px) {
+  .modal-wide { width: 100%; }
+}

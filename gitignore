@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Local database — regenerated on every fresh run, never commit real data
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets — never commit API keys
+.env
+*.env
+
+# OS junk
+.DS_Store
+Thumbs.db

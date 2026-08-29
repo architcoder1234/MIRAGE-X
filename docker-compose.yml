@@ -1,0 +1,62 @@
+# MIRAGE-X — isolated decoy stack.
+#
+# Both decoys run on an `internal: true` Docker network, which means they
+# have no default route out to the internet — they cannot make outbound
+# connections even if a payload inside somehow tried to. Host access to the
+# decoys (for nmap/hydra/nc during the demo) still works because published
+# `ports:` mappings are handled by Docker's NAT independently of that
+# network's internet egress.
+#
+# The backend/ directory is bind-mounted (not copied) so both decoys share
+# db.py, common.py, and the live SQLite file with the FastAPI backend you
+# run separately on the host — evidence shows up in the same dashboard.
+#
+# Usage:
+#   INCIDENT_ID=INC-0001 docker compose up --build
+#
+services:
+  fake-ssh:
+    build:
+      context: .
+      dockerfile: docker/fake-ssh/Dockerfile
+    volumes:
+      - ./backend:/app
+    ports:
+      - "2222:2222"
+    environment:
+      - INCIDENT_ID=${INCIDENT_ID:-INC-DOCKER}
+      - DECOY_PORT=2222
+    networks:
+      - mirage-isolated
+
+  fake-db:
+    build:
+      context: .
+      dockerfile: docker/fake-db/Dockerfile
+    volumes:
+      - ./backend:/app
+    ports:
+      - "3307:3307"
+    environment:
+      - INCIDENT_ID=${INCIDENT_ID:-INC-DOCKER}
+      - DECOY_PORT=3307
+    networks:
+      - mirage-isolated
+
+  fake-admin-panel:
+    build:
+      context: .
+      dockerfile: docker/fake-admin-panel/Dockerfile
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8080:8080"
+    environment:
+      - INCIDENT_ID=${INCIDENT_ID:-INC-DOCKER}
+      - DECOY_PORT=8080
+    networks:
+      - mirage-isolated
+
+networks:
+  mirage-isolated:
+    internal: true
