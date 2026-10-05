@@ -158,7 +158,7 @@ def build_story():
                 ["Deception", "Fake SSH, fake database, and fake admin panel decoys with interaction logging."],
                 ["Intelligence", "Attack-path prediction, MITRE ATT&CK mapping, SOC severity, and grounded advisor."],
                 ["Frontend", "Responsive static dashboard with replay, trend, comparison, alerts, settings, onboarding, and accessibility."],
-                ["Validation", "12 automated tests pass; Python syntax compilation passes."],
+                ["Validation", "30 automated tests pass; Python syntax compilation passes."],
                 ["Safety", "Simulation-first design, no real credentials, isolated Docker decoys, no live response automation."],
             ],
             [38 * mm, 132 * mm],
@@ -345,6 +345,9 @@ def build_story():
                 ["GET", "/incidents/{id}/advisory", "Generate grounded advisory."],
                 ["POST", "/incidents/{id}/ask", "Ask a question about one incident."],
                 ["POST", "/advisor/correlate", "Correlate all stored incidents."],
+                ["GET", "/health", "Health status, database check, version, and uptime."],
+                ["GET", "/events/stream", "Server-Sent Events for incidents, decoy evidence, and SOC alerts."],
+                ["GET", "/analytics", "Current-memory risk, MITRE, decoy, false-positive, and SOC aggregates."],
             ],
             [17 * mm, 55 * mm, 98 * mm],
         ),
@@ -355,8 +358,16 @@ def build_story():
             "Install backend/requirements.txt, initialize the SQLite database, start "
             "uvicorn on port 8000, and open frontend/index.html. The backend exposes "
             "interactive API documentation at /docs. The frontend requires no package "
-            "manager or build step."
+            "manager or build step. Pass ?api=http://localhost:8000 to the dashboard "
+            "when the backend is not at its default URL."
         ),
+        P("Render deployment", "h2"),
+        *bullets([
+            "<b>render.yaml</b> defines the Python web service, `/health` health check, uvicorn start command, and a 1 GB persistent disk mounted at `/var/data`.",
+            "Set <b>MIRAGE_DB_PATH=/var/data/mirage_x.db</b> so incident memory survives restarts.",
+            "Set <b>MIRAGE_ALLOWED_ORIGINS</b> to the exact dashboard origins; use <b>ANTHROPIC_API_KEY</b> only when live advisor calls are desired.",
+            "The deployed dashboard can be pointed at the service with `?api=&lt;backend-url&gt;`; cold-start retries and an unreachable banner are built in.",
+        ]),
         P("Dockerized decoys", "h2"),
         *bullets([
             "docker-compose.yml builds all three decoy services.",
@@ -381,7 +392,7 @@ def build_story():
                 ["Automated backend tests", "12 passed, covering false positives, new scenarios, routing, SOC paging, and MITRE tags."],
                 ["Repository state", "The reviewed branch was clean and had no uncommitted changes."],
                 ["Known warning", "FastAPI reports a non-blocking deprecation warning for on_event startup handlers."],
-                ["Deployment check", "The configured Render URL timed out during the review; deployment availability should be rechecked before sharing a live demo link."],
+                ["Deployment check", "Render metadata is included; the configured public URL should be rechecked before sharing a live demo link."],
             ],
             [50 * mm, 120 * mm],
         ),

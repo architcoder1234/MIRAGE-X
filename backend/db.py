@@ -6,23 +6,46 @@ every other module can rely on it without churn.
 import sqlite3
 import json
 import os
+import threading
 from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "mirage_x.db")
+DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), "mirage_x.db")
+DB_PATH = os.environ.get("MIRAGE_DB_PATH", DEFAULT_DB_PATH)
+CURRENT_SCHEMA_VERSION = 1
+WRITE_LOCK = threading.RLock()
+
+
+def _ensure_column(conn, table, column, definition):
+    columns = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    parent = os.path.dirname(os.path.abspath(DB_PATH))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=True)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=10000")
+    journal_mode = os.environ.get("MIRAGE_JOURNAL_MODE", "WAL").upper()
+    if journal_mode not in {"WAL", "DELETE"}:
+        journal_mode = "WAL"
+    conn.execute(f"PRAGMA journal_mode={journal_mode}")
     return conn
 
 
 def init_db(reset: bool = False):
-    if reset and os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-    conn = get_conn()
-    conn.executescript(
-        """
+    with WRITE_LOCK:
+        conn = get_conn()
+        conn.executescript(
+            """
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             incident_id TEXT,
@@ -65,9 +88,40 @@ def init_db(reset: bool = False):
             message TEXT
         );
         """
-    )
-    conn.commit()
-    conn.close()
+        )
+        if reset:
+            conn.executescript(
+                """
+                DELETE FROM events;
+                DELETE FROM incidents;
+                DELETE FROM decoy_interactions;
+                DELETE FROM alert_log;
+                """
+            )
+        _ensure_column(conn, "incidents", "status", "TEXT DEFAULT 'OPEN'")
+        _ensure_column(conn, "decoy_interactions", "folded", "INTEGER DEFAULT 0")
+        row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)",
+                (CURRENT_SCHEMA_VERSION,),
+            )
+        else:
+            conn.execute(
+                "UPDATE schema_version SET version=?",
+                (CURRENT_SCHEMA_VERSION,),
+            )
+        conn.commit()
+        conn.close()
+
+
+def health_check():
+    conn = get_conn()
+    try:
+        conn.execute("SELECT 1").fetchone()
+        return True
+    finally:
+        conn.close()
 
 
 def now_iso():
@@ -75,14 +129,15 @@ def now_iso():
 
 
 def insert_event(incident_id, event_type, src_ip, host, user, detail=""):
-    conn = get_conn()
-    conn.execute(
-        "INSERT INTO events (incident_id, ts, event_type, src_ip, host, user, detail) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (incident_id, now_iso(), event_type, src_ip, host, user, detail),
-    )
-    conn.commit()
-    conn.close()
+    with WRITE_LOCK:
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO events (incident_id, ts, event_type, src_ip, host, user, detail) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (incident_id, now_iso(), event_type, src_ip, host, user, detail),
+        )
+        conn.commit()
+        conn.close()
 
 
 def get_events(incident_id):
@@ -96,9 +151,10 @@ def get_events(incident_id):
 
 def upsert_incident(incident_id, behavior_sequence, risk_score, confidence,
                      decoy_deployed=None, similarity_top_match=None, summary=""):
-    conn = get_conn()
-    conn.execute(
-        """
+    with WRITE_LOCK:
+        conn = get_conn()
+        conn.execute(
+            """
         INSERT INTO incidents (incident_id, created_at, behavior_sequence, risk_score,
             confidence, decoy_deployed, similarity_top_match, summary)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -109,16 +165,16 @@ def upsert_incident(incident_id, behavior_sequence, risk_score, confidence,
             decoy_deployed=excluded.decoy_deployed,
             similarity_top_match=excluded.similarity_top_match,
             summary=excluded.summary
-        """,
-        (
-            incident_id, now_iso(), json.dumps(behavior_sequence), risk_score,
-            confidence, decoy_deployed,
-            json.dumps(similarity_top_match) if similarity_top_match else None,
-            summary,
-        ),
-    )
-    conn.commit()
-    conn.close()
+            """,
+            (
+                incident_id, now_iso(), json.dumps(behavior_sequence), risk_score,
+                confidence, decoy_deployed,
+                json.dumps(similarity_top_match) if similarity_top_match else None,
+                summary,
+            ),
+        )
+        conn.commit()
+        conn.close()
 
 
 def get_incident(incident_id):
@@ -149,14 +205,15 @@ def list_incidents():
 
 
 def log_decoy_interaction(incident_id, decoy, command, src_ip):
-    conn = get_conn()
-    conn.execute(
-        "INSERT INTO decoy_interactions (incident_id, decoy, ts, command, src_ip) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (incident_id, decoy, now_iso(), command, src_ip),
-    )
-    conn.commit()
-    conn.close()
+    with WRITE_LOCK:
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO decoy_interactions (incident_id, decoy, ts, command, src_ip) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (incident_id, decoy, now_iso(), command, src_ip),
+        )
+        conn.commit()
+        conn.close()
 
 
 def get_decoy_interactions(incident_id):
@@ -182,25 +239,27 @@ def get_unfolded_decoy_interactions(incident_id):
 def mark_decoy_interactions_folded(ids):
     if not ids:
         return
-    conn = get_conn()
-    placeholders = ",".join("?" for _ in ids)
-    conn.execute(
-        f"UPDATE decoy_interactions SET folded=1 WHERE id IN ({placeholders})",
-        ids,
-    )
-    conn.commit()
-    conn.close()
+    with WRITE_LOCK:
+        conn = get_conn()
+        placeholders = ",".join("?" for _ in ids)
+        conn.execute(
+            f"UPDATE decoy_interactions SET folded=1 WHERE id IN ({placeholders})",
+            ids,
+        )
+        conn.commit()
+        conn.close()
 
 
 def log_alert(incident_id, severity, channel, message):
-    conn = get_conn()
-    conn.execute(
-        "INSERT INTO alert_log (incident_id, ts, severity, channel, message) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (incident_id, now_iso(), severity, channel, message),
-    )
-    conn.commit()
-    conn.close()
+    with WRITE_LOCK:
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO alert_log (incident_id, ts, severity, channel, message) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (incident_id, now_iso(), severity, channel, message),
+        )
+        conn.commit()
+        conn.close()
 
 
 def get_alerts(limit=50):

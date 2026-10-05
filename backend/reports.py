@@ -103,6 +103,15 @@ def generate_incident_report(incident: dict, advisory: dict = None) -> str:
     if path_pred.get("predicted_next_label"):
         summary_rows.append([_cell("Predicted Next Target", label_style),
                               _cell(path_pred["predicted_next_label"], cell_style)])
+    quality = incident.get("decoy_quality_metrics") or {}
+    if quality:
+        quality_text = (
+            f"Dwell {quality.get('dwell_time_s', 0)}s; "
+            f"{quality.get('interaction_count', 0)} interaction(s); "
+            f"{quality.get('distinct_evidence_types', 0)} evidence type(s); "
+            f"path {'stayed' if quality.get('stayed_on_predicted_path') else 'diverged or unknown'}."
+        )
+        summary_rows.append([_cell("Decoy Quality", label_style), _cell(quality_text, cell_style)])
 
     tbl = Table(summary_rows, colWidths=[42 * mm, 118 * mm])
     tbl.setStyle(TableStyle([

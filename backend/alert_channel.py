@@ -13,6 +13,11 @@ real message anywhere. It's a simulation of the *decision*, not a fake
 integration pretending to be real.
 """
 import db
+import json
+import logging
+import time
+
+logger = logging.getLogger("mirage_x.alerts")
 
 CHANNEL = "#soc-alerts"
 
@@ -49,6 +54,7 @@ def maybe_send_alert(incident_id, fp, alert):
     real change doesn't spam the channel, but a genuine escalation still
     shows up. Returns the logged message dict, or None if nothing was sent.
     """
+    started = time.perf_counter()
     if not alert or not alert.get("would_page"):
         return None
 
@@ -61,4 +67,18 @@ def maybe_send_alert(incident_id, fp, alert):
 
     message = format_message(incident_id, fp, alert)
     db.log_alert(incident_id, alert.get("severity", "INFO"), CHANNEL, message)
+    try:
+        import event_stream
+        event_stream.publish("new_soc_alert", {
+            "incident_id": incident_id,
+            "severity": alert.get("severity", "INFO"),
+        })
+    except ImportError:
+        pass
+    logger.info(json.dumps({
+        "event": "soc_alert_fire",
+        "incident_id": incident_id,
+        "severity": alert.get("severity", "INFO"),
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+    }, sort_keys=True))
     return {"incident_id": incident_id, "severity": alert.get("severity"), "channel": CHANNEL, "message": message}

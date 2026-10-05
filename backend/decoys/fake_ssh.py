@@ -23,6 +23,7 @@ import db  # noqa: E402
 import common  # noqa: E402
 
 BANNER = b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.4\r\n"
+MAX_CLIENT_BYTES = 64 * 1024
 
 
 def handle_client(conn, addr, incident_id, decoy_name):
@@ -31,11 +32,16 @@ def handle_client(conn, addr, incident_id, decoy_name):
     try:
         conn.sendall(BANNER)
         conn.settimeout(15)
+        total_bytes = 0
         while True:
             data = conn.recv(1024)
             if not data:
                 break
             received_any = True
+            total_bytes += len(data)
+            if total_bytes > MAX_CLIENT_BYTES:
+                db.log_decoy_interaction(incident_id, decoy_name, "INPUT_LIMIT_REACHED", src_ip)
+                break
             label = common.classify_data(data)
             db.log_decoy_interaction(incident_id, decoy_name, label, src_ip)
             print(f"[fake_ssh] {src_ip} -> {label}")

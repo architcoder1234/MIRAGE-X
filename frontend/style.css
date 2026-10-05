@@ -14,6 +14,85 @@ body {
   margin: 0; background: var(--bg); color: var(--text);
   font-family: 'Segoe UI', system-ui, sans-serif;
 }
+
+.backend-banner {
+  margin: 10px auto 0;
+  max-width: 900px;
+  padding: 10px 14px;
+  border: 1px solid #a16207;
+  border-radius: 8px;
+  background: #422006;
+  color: #fde68a;
+  text-align: center;
+  font-size: 13px;
+}
+
+.demo-caption {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 20;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(720px, calc(100vw - 28px));
+  padding: 11px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .28);
+}
+
+.analytics-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 12px 0 18px;
+  color: var(--muted);
+}
+
+.analytics-summary strong {
+  color: var(--accent);
+  font-size: 28px;
+}
+
+.analytics-bars { margin-bottom: 18px; }
+.analytics-bars h3 { margin: 12px 0 8px; }
+.analytics-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 38px;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.analytics-track {
+  height: 10px;
+  border-radius: 8px;
+  background: var(--panel-border);
+  overflow: hidden;
+}
+.analytics-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.analytics-fp {
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+}
+
+.quality-metrics {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+}
 header {
   padding: 20px 28px; border-bottom: 1px solid var(--border);
   display: flex; justify-content: space-between; align-items: center;

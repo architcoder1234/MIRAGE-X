@@ -12,7 +12,6 @@ import db
 WEIGHTS = {
     "sequence_match": 0.40,      # bumped up since we only ship 2 features at P0
     "technique_match": 0.30,
-    "src_ip_match": 0.15,        # simple entity-role stand-in for the MVP
     "risk_band_match": 0.15,
 }
 
@@ -52,6 +51,7 @@ def compare_incidents(incident_a, incident_b):
         score += WEIGHTS["technique_match"] * tech_sim
         matched.append("technique_family")
 
+    # The incidents table stores the risk band in its `confidence` column.
     if incident_a.get("risk_band") and incident_a.get("risk_band") == incident_b.get("confidence"):
         score += WEIGHTS["risk_band_match"]
         matched.append("risk_band")

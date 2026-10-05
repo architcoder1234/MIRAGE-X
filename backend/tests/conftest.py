@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest  # noqa: E402
 import db  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -25,3 +26,10 @@ def isolated_db(monkeypatch):
     yield
     if os.path.exists(path):
         os.remove(path)
+
+
+@pytest.fixture
+def client():
+    import main
+    with TestClient(main.app) as test_client:
+        yield test_client

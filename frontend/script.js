@@ -1,13 +1,33 @@
-const API = "https://mirage-x.onrender.com";
+const API = (() => {
+  const query = new URLSearchParams(window.location.search).get("api");
+  const valid = value => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" ||
+        (url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname));
+    } catch (e) {
+      return false;
+    }
+  };
+  if (query && valid(query)) {
+    localStorage.setItem("mirageXApiBase", query.replace(/\/+$/, ""));
+  }
+  const stored = localStorage.getItem("mirageXApiBase");
+  return ((query && valid(query) ? query : (stored && valid(stored) ? stored : "https://mirage-x.onrender.com")).replace(/\/+$/, ""));
+})();
 let selectedIncident = null;
 let askBusy = false;
 let allIncidents = [];
+let eventsSource = null;
+let sseFailed = false;
+let demoRunning = false;
 
 // ---------- settings (persisted in this browser only) ----------
 
 const DEFAULT_SETTINGS = {
   beginnerMode: false,
   apiKey: "",
+  resetToken: "",
   theme: "dark",
   accentColor: "#4fd1c5",
   panels: { evidence: true, path: true, mitre: true, advisor: true },
@@ -18,6 +38,8 @@ function loadSettings() {
     const raw = localStorage.getItem("mirageXSettings");
     if (!raw) return structuredClone(DEFAULT_SETTINGS);
     const parsed = JSON.parse(raw);
+    parsed.apiKey = sessionStorage.getItem("mirageXApiKey") || "";
+    parsed.resetToken = sessionStorage.getItem("mirageXResetToken") || "";
     return { ...structuredClone(DEFAULT_SETTINGS), ...parsed, panels: { ...DEFAULT_SETTINGS.panels, ...(parsed.panels || {}) } };
   } catch (e) {
     return structuredClone(DEFAULT_SETTINGS);
@@ -25,12 +47,18 @@ function loadSettings() {
 }
 
 function persistSettings(settings) {
-  localStorage.setItem("mirageXSettings", JSON.stringify(settings));
+  const stored = { ...settings };
+  delete stored.apiKey;
+  delete stored.resetToken;
+  localStorage.setItem("mirageXSettings", JSON.stringify(stored));
+  sessionStorage.setItem("mirageXApiKey", settings.apiKey || "");
+  sessionStorage.setItem("mirageXResetToken", settings.resetToken || "");
 }
 
 function applySettingsToForm(settings) {
   document.getElementById("beginnerModeToggle").checked = settings.beginnerMode;
   document.getElementById("apiKeyInput").value = settings.apiKey || "";
+  document.getElementById("resetTokenInput").value = settings.resetToken || "";
   document.getElementById("accentInput").value = settings.accentColor || DEFAULT_SETTINGS.accentColor;
   document.querySelectorAll('input[name="theme"]').forEach(r => { r.checked = (r.value === settings.theme); });
   document.getElementById("panel_evidence").checked = settings.panels.evidence;
@@ -60,6 +88,7 @@ function saveSettings() {
   const settings = {
     beginnerMode: document.getElementById("beginnerModeToggle").checked,
     apiKey: document.getElementById("apiKeyInput").value.trim(),
+    resetToken: document.getElementById("resetTokenInput").value.trim(),
     theme: themeInput ? themeInput.value : DEFAULT_SETTINGS.theme,
     accentColor: document.getElementById("accentInput").value,
     panels: {
@@ -75,6 +104,8 @@ function saveSettings() {
 }
 
 function resetSettings() {
+  sessionStorage.removeItem("mirageXApiKey");
+  sessionStorage.removeItem("mirageXResetToken");
   persistSettings(DEFAULT_SETTINGS);
   applySettingsToForm(DEFAULT_SETTINGS);
   applySettingsToPage(DEFAULT_SETTINGS);
@@ -83,7 +114,14 @@ function resetSettings() {
 
 function authHeaders() {
   const settings = loadSettings();
-  return settings.apiKey ? { "X-Anthropic-Key": settings.apiKey } : {};
+  const allowed = API === "https://mirage-x.onrender.com" ||
+    ["localhost", "127.0.0.1"].includes(new URL(API).hostname);
+  return settings.apiKey && allowed ? { "X-Anthropic-Key": settings.apiKey } : {};
+}
+
+function resetHeaders() {
+  const token = loadSettings().resetToken;
+  return token ? { "X-Mirage-Reset-Token": token } : {};
 }
 
 // ---------- modal helpers (shared focus management + Escape-to-close) ----------
@@ -124,6 +162,45 @@ function openSettings() {
 }
 function closeSettings() { closeModal("settingsOverlay"); }
 
+function openAnalytics() {
+  openModal("analyticsOverlay");
+  loadAnalytics();
+}
+
+function closeAnalytics() { closeModal("analyticsOverlay"); }
+
+function analyticsBars(title, values, labelKey, valueKey) {
+  const entries = Object.entries(values || {});
+  if (!entries.length) return `<div class="empty">No ${title.toLowerCase()} yet.</div>`;
+  const max = Math.max(...entries.map(([, value]) => Number(value) || 0), 1);
+  return `<h3>${title}</h3><div class="analytics-bars">${entries.map(([label, value]) => `
+    <div class="analytics-row">
+      <span>${label}</span><div class="analytics-track"><div class="analytics-fill" style="width:${((value / max) * 100).toFixed(1)}%"></div></div><strong>${value}</strong>
+    </div>`).join('')}</div>`;
+}
+
+async function loadAnalytics() {
+  const body = document.getElementById("analyticsBody");
+  body.innerHTML = '<div class="empty">Loading analytics…</div>';
+  try {
+    const data = await (await fetch(`${API}/analytics`)).json();
+    const techniques = Object.fromEntries((data.top_mitre_techniques || []).map(t => [t.technique_id, t.count]));
+    const decoys = Object.fromEntries((data.decoy_usage_yield || []).map(d => [d.decoy, d.interactions]));
+    const fp = data.false_positive_control_rate || {};
+    body.innerHTML = `
+      <div class="analytics-summary"><strong>${data.incident_count}</strong><span>incidents in memory</span></div>
+      ${analyticsBars("Risk bands", data.risk_band_distribution)}
+      ${analyticsBars("SOC severity", data.soc_severity_distribution)}
+      ${analyticsBars("Top MITRE techniques", techniques)}
+      ${analyticsBars("Decoy interactions", decoys)}
+      <div class="analytics-fp"><strong>False-positive control:</strong>
+        ${fp.rate === null ? "No benign control incidents yet." : `${(fp.rate * 100).toFixed(0)}% clean (${fp.clean_benign_incidents}/${fp.eligible_benign_incidents})`}
+      </div>`;
+  } catch (error) {
+    body.innerHTML = '<div class="empty">Could not load analytics right now.</div>';
+  }
+}
+
 // ---------- toast notifications ----------
 
 function showToast(message, type = "info") {
@@ -134,6 +211,74 @@ function showToast(message, type = "info") {
   container.appendChild(toast);
   setTimeout(() => { toast.classList.add("toast-out"); }, 4200);
   setTimeout(() => { toast.remove(); }, 4700);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function setDemoCaption(text) {
+  const box = document.getElementById("demoCaption");
+  document.getElementById("demoCaptionText").textContent = text;
+  box.hidden = false;
+}
+
+function skipFullDemo() {
+  demoRunning = false;
+  document.getElementById("demoCaption").hidden = true;
+  showToast("Full demo skipped.", "info");
+}
+
+async function runDemoScenario(scenario, narration) {
+  if (!demoRunning) return;
+  setDemoCaption(narration);
+  const response = await fetch(`${API}/simulate`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ scenario }),
+  });
+  if (!response.ok) throw new Error(`Scenario failed: ${response.status}`);
+  const incident = await response.json();
+  await loadIncidents();
+  await selectIncident(incident.incident_id);
+  await sleep(1200);
+}
+
+async function runFullDemo() {
+  if (demoRunning) return;
+  demoRunning = true;
+  try {
+    setDemoCaption("1/9 Resetting the isolated demo memory.");
+    const reset = await fetch(`${API}/reset`, {method: "POST", headers: resetHeaders()});
+    if (!reset.ok) throw new Error(reset.status === 403
+      ? "Reset denied: add the hosted reset token in Settings."
+      : `Reset failed (${reset.status})`);
+    await loadIncidents();
+    renderEmpty();
+    await sleep(700);
+    await runDemoScenario("recon_to_db_hunt", "2/9 Running the recon-to-database attack chain.");
+    setDemoCaption("3/9 The dashboard now shows risk, memory, MITRE, SOC severity, and the selected fake DB decoy.");
+    await sleep(1800);
+    setDemoCaption("4/9 Replaying the event timeline and risk escalation.");
+    setupReplay(replayEvents);
+    await sleep(1800);
+    await runDemoScenario("recon_to_db_hunt_variant_ip", "5/9 Running the same behavior from a different source IP.");
+    setDemoCaption("6/9 Behavior-first memory recognizes the returning pattern.");
+    await sleep(1600);
+    await runDemoScenario("data_exfiltration", "7/9 Running the critical exfiltration scenario.");
+    setDemoCaption("8/9 Showing the simulated SOC page and downloadable evidence report.");
+    await loadAlerts();
+    await sleep(1800);
+    openAnalytics();
+    setDemoCaption("9/9 Analytics summarizes risk bands, techniques, decoy use, and false-positive control.");
+    await sleep(2500);
+    document.getElementById("demoCaption").hidden = true;
+    showToast("Full demo complete.", "success");
+  } catch (error) {
+    showToast(`Full demo stopped: ${error.message}`, "warn");
+  } finally {
+    demoRunning = false;
+  }
 }
 
 // ---------- risk banding ----------
@@ -150,14 +295,27 @@ function riskBand(score) {
 // ---------- status checks ----------
 
 async function checkApi() {
-  try {
-    await fetch(`${API}/scenarios`);
-    document.getElementById('apiStatus').textContent = "connected";
-    document.getElementById('apiStatus').style.color = "#4fd17e";
-  } catch (e) {
-    document.getElementById('apiStatus').textContent = "offline (start uvicorn)";
-    document.getElementById('apiStatus').style.color = "#ff5c5c";
+  const banner = document.getElementById("backendBanner");
+  const delays = [0, 1000, 2500, 5000, 8000];
+  for (let i = 0; i < delays.length; i += 1) {
+    if (delays[i]) await new Promise(resolve => setTimeout(resolve, delays[i]));
+    try {
+      const response = await fetch(`${API}/health`, { signal: AbortSignal.timeout(12000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      document.getElementById('apiStatus').textContent = "connected";
+      document.getElementById('apiStatus').style.color = "#4fd17e";
+      banner.hidden = true;
+      return true;
+    } catch (e) {
+      document.getElementById('apiStatus').textContent = i < 2 ? "waking up…" : "unreachable";
+      document.getElementById('apiStatus').style.color = "#ff5c5c";
+      banner.textContent = i < 2
+        ? "Backend waking up… retrying automatically."
+        : `Backend unreachable at ${API}. Check the service or open the dashboard with ?api=http://localhost:8000`;
+      banner.hidden = false;
+    }
   }
+  return false;
 }
 
 async function checkLlmStatus() {
@@ -184,7 +342,7 @@ async function loadScenarios() {
   const res = await fetch(`${API}/scenarios`);
   const data = await res.json();
   const sel = document.getElementById('scenarioSelect');
-  sel.innerHTML = data.scenarios.map(s => `<option value="${s}">${s}</option>`).join('');
+  sel.innerHTML = data.scenarios.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
 }
 
 async function runScenario() {
@@ -201,7 +359,13 @@ async function runScenario() {
 }
 
 async function resetDemo() {
-  await fetch(`${API}/reset`, {method: 'POST'});
+  const response = await fetch(`${API}/reset`, {method: 'POST', headers: resetHeaders()});
+  if (!response.ok) {
+    showToast(response.status === 403
+      ? "Reset denied. Add the hosted reset token in Settings."
+      : `Reset failed (${response.status}).`, "warn");
+    return;
+  }
   selectedIncident = null;
   compareSelection.clear();
   updateCompareUI();
@@ -241,6 +405,33 @@ async function loadIncidents() {
   renderIncidentList();
 }
 
+function startLiveUpdates() {
+  if (!window.EventSource || eventsSource) return;
+  eventsSource = new EventSource(`${API}/events/stream`);
+  eventsSource.addEventListener("ready", () => { sseFailed = false; });
+  ["new_incident", "incident_updated", "decoy_evidence"].forEach(type => {
+    eventsSource.addEventListener(type, async (event) => {
+      const data = JSON.parse(event.data || "{}");
+      await loadIncidents();
+      if (selectedIncident && data.incident_id === selectedIncident) {
+        await renderIncident(selectedIncident);
+      }
+      if (type === "new_incident") showToast(`Incident ${data.incident_id} updated live.`, "info");
+      if (type === "decoy_evidence") showToast("New decoy evidence received.", "success");
+    });
+  });
+  eventsSource.addEventListener("new_soc_alert", () => {
+    loadAlerts();
+    showToast("New simulated SOC alert received.", "warn");
+  });
+  eventsSource.onerror = () => {
+    if (!sseFailed) {
+      sseFailed = true;
+      showToast("Live updates unavailable; using periodic polling.", "warn");
+    }
+  };
+}
+
 function renderIncidentList() {
   const list = document.getElementById('incidentList');
   if (!allIncidents.length) {
@@ -270,17 +461,28 @@ function renderIncidentList() {
 
   list.innerHTML = filtered.map(i => `
     <div class="incident-item ${selectedIncident === i.incident_id ? 'selected' : ''}">
-      <input type="checkbox" class="compare-check" aria-label="Select ${i.incident_id} for comparison"
-        onclick="event.stopPropagation(); toggleCompareSelect('${i.incident_id}', this.checked)"
+      <input type="checkbox" class="compare-check" aria-label="Select ${escapeHtml(i.incident_id)} for comparison"
+        data-incident-id="${escapeHtml(i.incident_id)}"
         ${compareSelection.has(i.incident_id) ? 'checked' : ''} />
-      <div class="incident-click-area" onclick="selectIncident('${i.incident_id}')" tabindex="0"
-        role="button" aria-label="View incident ${i.incident_id}"
-        onkeydown="if(event.key==='Enter') selectIncident('${i.incident_id}')">
-        <strong>${i.incident_id}</strong> <span class="badge badge-${riskBand(i.risk_score)}">${riskBand(i.risk_score)}</span>
-        <div style="color:var(--muted); font-size:11px; margin-top:2px;">${i.behavior_sequence.join(' → ')}</div>
+      <div class="incident-click-area" data-incident-id="${escapeHtml(i.incident_id)}" tabindex="0"
+        role="button" aria-label="View incident ${escapeHtml(i.incident_id)}">
+        <strong>${escapeHtml(i.incident_id)}</strong> <span class="badge badge-${riskBand(i.risk_score)}">${riskBand(i.risk_score)}</span>
+        <div style="color:var(--muted); font-size:11px; margin-top:2px;">${escapeHtml(i.behavior_sequence.join(' → '))}</div>
       </div>
     </div>
   `).join('');
+  list.querySelectorAll('.compare-check').forEach(input => {
+    input.addEventListener('click', event => {
+      event.stopPropagation();
+      toggleCompareSelect(input.dataset.incidentId, input.checked);
+    });
+  });
+  list.querySelectorAll('.incident-click-area').forEach(item => {
+    item.addEventListener('click', () => selectIncident(item.dataset.incidentId));
+    item.addEventListener('keydown', event => {
+      if (event.key === 'Enter') selectIncident(item.dataset.incidentId);
+    });
+  });
 }
 
 function toggleCompareSelect(id, checked) {
@@ -344,13 +546,13 @@ function renderCompare(a, b) {
     <table class="compare-table">
       <thead><tr><th>Field</th><th>${a.incident_id}</th><th>${b.incident_id}</th></tr></thead>
       <tbody>
-        ${rows.map(([label, av, bv]) => `<tr><th scope="row">${label}</th><td>${av}</td><td>${bv}</td></tr>`).join('')}
+        ${rows.map(([label, av, bv]) => `<tr><th scope="row">${escapeHtml(label)}</th><td>${escapeHtml(av)}</td><td>${escapeHtml(bv)}</td></tr>`).join('')}
       </tbody>
     </table>
     ${sharedDecoy || sharedTechniques.length ? `
       <div class="compare-note">
-        ${sharedDecoy ? `⚠️ Both incidents were routed to the same decoy (${a.decoy_deployed}) — worth checking if this is one attacker returning.<br>` : ''}
-        ${sharedTechniques.length ? `Shared MITRE techniques: ${sharedTechniques.map(t => t.technique_id).join(', ')}` : ''}
+        ${sharedDecoy ? `⚠️ Both incidents were routed to the same decoy (${escapeHtml(a.decoy_deployed)}) — worth checking if this is one attacker returning.<br>` : ''}
+        ${sharedTechniques.length ? `Shared MITRE techniques: ${escapeHtml(sharedTechniques.map(t => t.technique_id).join(', '))}` : ''}
       </div>` : '<div class="compare-note">No obvious overlap between these two incidents.</div>'}
   `;
 }
@@ -488,7 +690,7 @@ let replayTimer = null;
 function renderTimelineUpTo(events, uptoIndex) {
   document.getElementById('timeline').innerHTML = events.map((e, i) => `
     <div class="timeline-step ${i > uptoIndex ? 'future' : ''} ${i === uptoIndex ? 'current' : ''}"><div class="dot"></div>
-      <div><strong>${e.event_type}</strong><br><span style="color:var(--muted)">${e.detail || ''}</span></div>
+      <div><strong>${escapeHtml(e.event_type)}</strong><br><span style="color:var(--muted)">${escapeHtml(e.detail || '')}</span></div>
     </div>
   `).join('') || '<div class="empty">No events.</div>';
 }
@@ -550,7 +752,8 @@ function stopReplay() {
 let lastSeenAlertId = parseInt(localStorage.getItem('mirageXLastSeenAlertId') || '0', 10);
 
 function escapeHtml(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function formatAlertHtml(message) {
@@ -573,7 +776,7 @@ async function loadAlerts() {
     }
     list.innerHTML = alerts.map(a => `
       <div class="alert-bubble severity-${a.severity}">
-        <div class="alert-bubble-head"><strong>${a.channel}</strong> <span class="setting-desc">${new Date(a.ts).toLocaleTimeString()}</span></div>
+        <div class="alert-bubble-head"><strong>${escapeHtml(a.channel)}</strong> <span class="setting-desc">${escapeHtml(new Date(a.ts).toLocaleTimeString())}</span></div>
         <div class="alert-bubble-body">${formatAlertHtml(a.message)}</div>
       </div>
     `).join('');
@@ -627,12 +830,12 @@ function renderAdvisor(data) {
     badge.className = 'mode-badge fallback';
   }
 
-  const actions = (data.recommended_actions || []).map(a => `<li>${a}</li>`).join('');
+  const actions = (data.recommended_actions || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
   document.getElementById('advisorBox').innerHTML = `
-    <div class="advisor-summary">${data.plain_summary || ''}</div>
+    <div class="advisor-summary">${escapeHtml(data.plain_summary || '')}</div>
     ${actions ? `<ul class="advisor-actions">${actions}</ul>` : ''}
-    ${data.analyst_note ? `<div class="advisor-note"><strong>Analyst note:</strong> ${data.analyst_note}</div>` : ''}
-    ${data.error ? `<div class="advisor-note muted">${data.error}</div>` : ''}
+    ${data.analyst_note ? `<div class="advisor-note"><strong>Analyst note:</strong> ${escapeHtml(data.analyst_note)}</div>` : ''}
+    ${data.error ? `<div class="advisor-note muted">${escapeHtml(data.error)}</div>` : ''}
   `;
 }
 
@@ -659,7 +862,7 @@ async function askAdvisor() {
   const qId = `q-${Date.now()}`;
   history.insertAdjacentHTML('afterbegin', `
     <div class="ask-item">
-      <div class="ask-q">${question}</div>
+      <div class="ask-q">${escapeHtml(question)}</div>
       <div class="ask-a" id="${qId}">Thinking…</div>
     </div>
   `);
@@ -698,7 +901,7 @@ async function runCorrelation() {
     const badge = data.mode === 'llm'
       ? '<span class="mode-badge live">LIVE AI</span>'
       : '<span class="mode-badge fallback">RULE-BASED</span>';
-    box.innerHTML = `<div class="advisor-summary">${badge} ${data.answer || 'No answer returned.'}</div>`;
+    box.innerHTML = `<div class="advisor-summary">${badge} ${escapeHtml(data.answer || 'No answer returned.')}</div>`;
   } catch (e) {
     box.innerHTML = '<div class="empty">Could not reach the AI advisor right now.</div>';
   } finally {
@@ -743,28 +946,37 @@ async function renderIncident(id) {
   const res = await fetch(`${API}/incidents/${id}`);
   const inc = await res.json();
 
-  document.getElementById('centerTitle').innerHTML = `Timeline — ${id} <span class="hint" tabindex="0" title="The exact sequence of actions the system observed, in order.">?</span>`;
+  document.getElementById('centerTitle').innerHTML = `Timeline — ${escapeHtml(id)} <span class="hint" tabindex="0" title="The exact sequence of actions the system observed, in order.">?</span>`;
   setupReplay(inc.events);
 
-  document.getElementById('evidence').innerHTML = inc.decoy_evidence.length
+  const quality = inc.decoy_quality_metrics || {};
+  const qualitySummary = quality.interaction_count
+    ? `<div class="quality-metrics" aria-label="Decoy quality metrics">
+        <strong>Quality:</strong> dwell ${quality.dwell_time_s}s,
+        ${quality.interaction_count} interaction(s),
+        ${quality.distinct_evidence_types} evidence type(s),
+        path ${quality.stayed_on_predicted_path === true ? 'stayed' : 'diverged/unknown'}.
+      </div>`
+    : '';
+  document.getElementById('evidence').innerHTML = qualitySummary + (inc.decoy_evidence.length
     ? inc.decoy_evidence.map(ev => {
         let cls = '';
         if (ev.command.startsWith('BRUTEFORCE_PATTERN_DETECTED')) cls = 'danger';
         else if (ev.command.startsWith('PROBE_ONLY')) cls = 'warn';
         else if (ev.command.startsWith('CLIENT_BANNER')) cls = 'info';
-        return `<div class="evidence-line ${cls}">[${ev.decoy}] ${ev.src_ip} → ${ev.command}</div>`;
+        return `<div class="evidence-line ${cls}">[${escapeHtml(ev.decoy)}] ${escapeHtml(ev.src_ip)} → ${escapeHtml(ev.command)}</div>`;
       }).join('')
-    : '<div class="empty">No decoy interactions logged.</div>';
+    : '<div class="empty">No decoy interactions logged.</div>');
 
   const path = inc.predicted_path;
   document.getElementById('pathBox').innerHTML = path && path.predicted_next_target
     ? `<div class="path-chain">
-         <div class="path-node">${path.current_position}</div>
+         <div class="path-node">${escapeHtml(path.current_position)}</div>
          <div class="path-arrow">→</div>
-         <div class="path-node target">${path.predicted_next_label}</div>
+         <div class="path-node target">${escapeHtml(path.predicted_next_label)}</div>
        </div>
-       <div class="path-reason">${path.reason} (triggered by ${path.triggering_event})</div>`
-    : `<div class="empty">${path ? path.reason : 'No prediction yet.'}</div>`;
+       <div class="path-reason">${escapeHtml(path.reason)} (triggered by ${escapeHtml(path.triggering_event)})</div>`
+    : `<div class="empty">${path ? escapeHtml(path.reason) : 'No prediction yet.'}</div>`;
   renderPathDiagram(path);
 
   // Risk (how dangerous the behavior looks) and Confidence (how well it
@@ -779,33 +991,33 @@ async function renderIncident(id) {
     <div style="margin-top:8px;">Risk score: <strong>${inc.risk_score}</strong>/100</div>
     <div class="risk-bar-bg"><div class="risk-bar-fill" style="width:${inc.risk_score}%"></div></div>
     ${inc.similarity_top_match ? `<div style="margin-top:10px; font-size:12px; color:var(--muted);">
-      Closest match: ${inc.similarity_top_match.incident_id} (score ${inc.similarity_top_match.score})<br>
-      Matched on: ${inc.similarity_top_match.matched_features.join(', ') || 'none'}
+      Closest match: ${escapeHtml(inc.similarity_top_match.incident_id)} (score ${Number(inc.similarity_top_match.score) || 0})<br>
+      Matched on: ${escapeHtml(inc.similarity_top_match.matched_features.join(', ') || 'none')}
     </div>` : ''}
   `;
   loadRiskTrend(id);
 
   document.getElementById('decoyBox').innerHTML = inc.decoy_deployed
-    ? `<div class="decoy-tag">🎭 ${inc.decoy_deployed} deployed</div>`
+    ? `<div class="decoy-tag">🎭 ${escapeHtml(inc.decoy_deployed)} deployed</div>`
     : `<div class="decoy-tag" style="background:#132018; color:var(--low);">No decoy needed</div>`;
 
   const mitre = inc.mitre_techniques || [];
   document.getElementById('mitreBox').innerHTML = mitre.length
-    ? mitre.map(t => `<span class="mitre-tag" title="${t.tactic}">${t.technique_id} — ${t.technique_name}</span>`).join('')
+    ? mitre.map(t => `<span class="mitre-tag" title="${escapeHtml(t.tactic)}">${escapeHtml(t.technique_id)} — ${escapeHtml(t.technique_name)}</span>`).join('')
     : '<div class="empty">No mapped techniques yet.</div>';
 
   const alert = inc.soc_alert;
   if (alert) {
     document.getElementById('socBanner').innerHTML = `
       <div class="soc-banner ${alert.would_page ? 'page' : 'noage'}">
-        ${alert.would_page ? '🚨' : 'ℹ️'} SOC Severity: <strong>${alert.severity}</strong>
+        ${alert.would_page ? '🚨' : 'ℹ️'} SOC Severity: <strong>${escapeHtml(alert.severity)}</strong>
         ${alert.would_page ? '— would page an analyst' : '— no page, queued for review'}
       </div>`;
   } else {
     document.getElementById('socBanner').innerHTML = '';
   }
 
-  document.getElementById('summaryBox').innerHTML = inc.summary || '<div class="empty">No summary yet.</div>';
+  document.getElementById('summaryBox').textContent = inc.summary || 'No summary yet.';
 }
 
 // ---------- onboarding walkthrough ----------
@@ -883,6 +1095,7 @@ loadScenarios();
 loadNetworkGraph();
 loadIncidents();
 pollAlerts();
+startLiveUpdates();
 
 if (!localStorage.getItem('mirageXOnboarded')) {
   setTimeout(startOnboarding, 400);

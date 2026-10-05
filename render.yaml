@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: mirage-x
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: MIRAGE_ALLOWED_ORIGINS
+        sync: false
+      - key: MIRAGE_RESET_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+    # Paid-plan variant with persistent SQLite storage:
+    # disk:
+    #   name: mirage-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # envVars:
+    #   - key: MIRAGE_DB_PATH
+    #     value: /var/data/mirage_x.db
