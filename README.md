@@ -21,7 +21,7 @@ no uncontrolled external access. See "Safety Boundary" below.
 
 ```bash
 cd backend
-pip install -r requirements.txt
+pip install -r ..\requirements-dev.txt
 python -c "import db; db.init_db(reset=True)"
 uvicorn main:app --reload --port 8000
 ```
@@ -29,17 +29,41 @@ uvicorn main:app --reload --port 8000
 Then open `frontend/index.html` directly in a browser (no build step needed —
 it's a single static file that calls `http://localhost:8000`).
 
+The dashboard API target can be overridden with `frontend/index.html?api=<url>`
+or the `mirageXApiBase` browser setting. It checks `/health`, retries Render
+cold starts, and uses Server-Sent Events with polling fallback for live updates.
+
+### Deployment
+
+`render.yaml` configures the `/health` check, the uvicorn start command, and
+these environment variables:
+
+- `PYTHON_VERSION=3.11.9`
+- `MIRAGE_ALLOWED_ORIGINS` (comma-separated dashboard origins)
+- `MIRAGE_RESET_TOKEN` (required for hosted Reset Memory and Full Demo)
+- `ANTHROPIC_API_KEY` (optional)
+- `MIRAGE_X_ANTHROPIC_MODEL` (optional)
+
+The free plan uses ephemeral SQLite storage. The paid-plan disk variant is
+commented in `render.yaml`; enable it with `MIRAGE_DB_PATH=/var/data/mirage_x.db`
+when persistent storage is required.
+
 ### Running isolated decoys via Docker (recommended for the actual demo)
 
 ```bash
 INCIDENT_ID=INC-0001 docker compose up --build
 ```
 
-This starts both decoys on an isolated Docker network (no outbound internet
-access from inside the containers) while still publishing their ports to the
-host, so `nmap`/`hydra`/`nc` from your WSL Kali or Parrot terminal can reach
+This starts the decoys on an isolated Docker network (no outbound internet
+access from inside the containers) and binds their published ports to
+127.0.0.1. From the host, `nmap`/`hydra`/`nc` can reach
 them. They share the same SQLite file as the backend running on the host, so
 everything shows up live in the dashboard.
+
+On Docker Desktop for Windows, keep the backend and decoy processes on the
+same host-visible path and use `MIRAGE_JOURNAL_MODE=DELETE` if WAL file sharing
+between the bind-mounted container and host SQLite process causes locking
+errors. The default remains WAL.
 
 If you'd rather run a decoy directly without Docker (fine for local dev,
 just not isolated):
@@ -97,11 +121,12 @@ python decoys/fake_ssh.py --incident INC-0001 --port 2222
       one-page report with risk score, SOC severity, MITRE techniques, and
       decoy evidence, generated with ReportLab and downloadable straight
       from the dashboard
-- [x] False-positive test suite (`backend/tests/`) — 12 automated pytest
+- [x] False-positive and integration test suite (`backend/tests/`) — 45 automated pytest
       tests proving benign traffic never triggers a decoy, even with memory
       full of unrelated HIGH-risk incidents, plus sanity checks that every
       new attack scenario produces the behavior the pitch claims. Run with
-      `cd backend && pytest tests/ -v`
+      `python -m pytest backend/tests -v`
+      Install development dependencies with `pip install -r requirements-dev.txt`.
 - [x] LLM advisor layer (`backend/advisor.py`, `GET /incidents/{id}/advisory`,
       `POST /incidents/{id}/ask`) — grounded strictly in the already-computed
       risk score, decoy decision, MITRE techniques, and SOC severity; it
@@ -174,11 +199,24 @@ python decoys/fake_ssh.py --incident INC-0001 --port 2222
       returns to the trigger on close, Escape closes whichever modal is
       open, visible `:focus-visible` outlines, `aria-live` regions on
       status lines and toasts
+- [x] Reliability and deployment hardening — `/health`, configurable persistent
+      SQLite path, schema metadata initialization, structured logs, CORS allowlist,
+      Render configuration, and frontend cold-start retries
+- [x] Live updates (`GET /events/stream`) with EventSource and polling fallback
+- [x] Analytics (`GET /analytics`) for risk bands, MITRE frequency, decoy usage,
+      false-positive control, and SOC severity distribution
+- [x] Decoy quality metrics — dwell time, interaction depth, evidence diversity,
+      and predicted-path alignment in incident views and reports
+- [x] Guided "Full demo" button with nine narrated, skippable steps
 
-## What's left (P1 / stretch — see `docs/BUILD_GUIDE.md`)
+## What's left (future roadmap — see `docs/BUILD_GUIDE.md`)
 
-- [ ] Live updates via WebSocket/SSE instead of the current 4s poll
-- [ ] Historical analytics view (trends across all incidents, not just one)
+- [x] Live updates via SSE with polling fallback
+- [x] Initial analytics view for current incident memory
+- [ ] Historical analytics view across retained sessions
+- [ ] Authentication and role-based access
+- [ ] External telemetry adapters (Zeek, Suricata, Windows, cloud audit logs)
+- [ ] Structured metrics, audit trail, retention, encryption, and production observability
 - [ ] Full end-to-end run-through of all 10 scenarios to confirm nothing's broken
 - [ ] Pitch deck, architecture diagram export, rehearsal, backup demo video
 

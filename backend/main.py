@@ -13,12 +13,17 @@ Run:
 Then hit http://localhost:8000/docs for the interactive API, or point the
 frontend/index.html dashboard at it.
 """
-from fastapi import FastAPI, HTTPException, Header
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 import os
+import json
+import logging
+import time
 import uuid
 
 import db
@@ -33,46 +38,82 @@ import soc_alert
 import reports
 import advisor
 import alert_channel
+import event_stream
+import decoy_quality
 
-app = FastAPI(title="MIRAGE-X API", version="0.1.0")
+VERSION = "0.2.0"
+STARTED_AT = time.monotonic()
+logger = logging.getLogger("mirage_x")
+logging.basicConfig(level=os.environ.get("MIRAGE_LOG_LEVEL", "INFO"))
+
+
+def _origins():
+    configured = os.environ.get("MIRAGE_ALLOWED_ORIGINS")
+    if configured:
+        return [item.strip() for item in configured.split(",") if item.strip()]
+    return ["http://localhost", "http://localhost:8000", "http://127.0.0.1:8000", "null"]
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    db.init_db()
+    yield
+
+
+app = FastAPI(title="MIRAGE-X API", version=VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-@app.on_event("startup")
-def startup():
-    db.init_db()
+def _log_event(name, incident_id=None, started=None, **fields):
+    payload = {"event": name}
+    if incident_id:
+        payload["incident_id"] = incident_id
+    if started is not None:
+        payload["duration_ms"] = round((time.perf_counter() - started) * 1000, 2)
+    payload.update(fields)
+    logger.info(json.dumps(payload, sort_keys=True))
 
 
 # ---------- request models ----------
 
 class SimulateRequest(BaseModel):
-    scenario: str
-    incident_id: Optional[str] = None
-    host: Optional[str] = "host-03"
-    user: Optional[str] = "svc-test"
+    scenario: str = Field(min_length=1, max_length=100)
+    incident_id: Optional[str] = Field(default=None, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$")
+    host: Optional[str] = Field(default="host-03", max_length=100, pattern=r"^[A-Za-z0-9_.:@-]+$")
+    user: Optional[str] = Field(default="svc-test", max_length=100, pattern=r"^[A-Za-z0-9_.:@-]+$")
 
 
 class AskRequest(BaseModel):
-    question: str
+    question: str = Field(min_length=1, max_length=2000)
 
 
 class CorrelateRequest(BaseModel):
-    question: Optional[str] = None
+    question: Optional[str] = Field(default=None, max_length=2000)
 
 
 class IngestEvent(BaseModel):
-    incident_id: str
-    event_type: str
-    src_ip: str
-    host: str
-    user: str
-    detail: Optional[str] = ""
+    incident_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$")
+    event_type: str = Field(min_length=1, max_length=100, pattern=r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
+    src_ip: str = Field(min_length=1, max_length=100)
+    host: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.:@-]+$")
+    user: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.:@-]+$")
+    detail: Optional[str] = Field(default="", max_length=4000)
+
+    @field_validator("src_ip")
+    @classmethod
+    def validate_src_ip(cls, value):
+        import ipaddress
+        try:
+            ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise ValueError("src_ip must be a valid IPv4 or IPv6 address") from exc
+        return value
 
 
 # ---------- helpers ----------
@@ -86,6 +127,11 @@ def _full_incident(incident_id):
     incident["events"] = db.get_events(incident_id)
     incident["decoy_evidence"] = db.get_decoy_interactions(incident_id)
     incident["predicted_path"] = attack_path.predict_next_target(incident["behavior_sequence"])
+    incident["decoy_quality_metrics"] = decoy_quality.metrics(
+        incident["decoy_evidence"],
+        incident.get("decoy_deployed"),
+        incident["predicted_path"],
+    )
     incident["mitre_techniques"] = mitre.techniques_for_sequence(incident["behavior_sequence"])
     incident["soc_alert"] = soc_alert.severity_for(incident["risk_score"], incident["behavior_sequence"])
     return incident
@@ -123,9 +169,21 @@ def _process_incident(incident_id):
     )
     incident = db.get_incident(incident_id)
     incident["predicted_path"] = path_prediction
+    incident["decoy_evidence"] = db.get_decoy_interactions(incident_id)
+    incident["decoy_quality_metrics"] = decoy_quality.metrics(
+        incident["decoy_evidence"], decoy, path_prediction
+    )
     incident["mitre_techniques"] = mitre_techniques
     incident["soc_alert"] = alert
     return incident
+
+
+def _publish_incident(event_type, incident):
+    event_stream.publish(event_type, {
+        "incident_id": incident.get("incident_id"),
+        "risk_score": incident.get("risk_score"),
+        "decoy_deployed": incident.get("decoy_deployed"),
+    })
 
 
 def _explain(fp, match, decoy, reason, path_prediction=None, alert=None):
@@ -164,6 +222,20 @@ def get_scenarios():
     return {"scenarios": simulator.list_scenarios()}
 
 
+@app.get("/health")
+def health():
+    try:
+        db_ok = db.health_check()
+    except Exception:
+        db_ok = False
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "db_ok": db_ok,
+        "version": VERSION,
+        "uptime_s": round(time.monotonic() - STARTED_AT, 2),
+    }
+
+
 @app.post("/simulate")
 def simulate(req: SimulateRequest):
     incident_id = req.incident_id or _next_incident_id()
@@ -172,14 +244,20 @@ def simulate(req: SimulateRequest):
     except ValueError as e:
         raise HTTPException(400, str(e))
     incident = _process_incident(incident_id)
+    _publish_incident("new_incident", incident)
     return incident
 
 
 @app.post("/ingest")
 def ingest(event: IngestEvent):
+    if not db.get_incident(event.incident_id):
+        raise HTTPException(404, "incident not found; create it with /simulate first")
+    started = time.perf_counter()
     db.insert_event(event.incident_id, event.event_type, event.src_ip,
                      event.host, event.user, event.detail or "")
     incident = _process_incident(event.incident_id)
+    _log_event("ingest", event.incident_id, started, event_type=event.event_type)
+    _publish_incident("incident_updated", incident)
     return incident
 
 
@@ -254,9 +332,19 @@ def recompute(incident_id: str):
     incident = db.get_incident(incident_id)
     if not incident:
         raise HTTPException(404, "incident not found")
+    started = time.perf_counter()
     folded_event_types = decoy_feedback.fold_decoy_evidence(incident_id)
     result = _process_incident(incident_id)
     result["decoy_events_folded"] = folded_event_types
+    _log_event("recompute", incident_id, started, folded_count=len(folded_event_types))
+    if folded_event_types:
+        _log_event("decoy_feedback", incident_id, started, folded_count=len(folded_event_types))
+    _publish_incident("incident_updated", result)
+    if folded_event_types:
+        event_stream.publish("decoy_evidence", {
+            "incident_id": incident_id,
+            "folded_count": len(folded_event_types),
+        })
     return result
 
 
@@ -267,9 +355,85 @@ def get_alerts():
     return db.get_alerts()
 
 
+@app.get("/analytics")
+def analytics():
+    incidents = db.list_incidents()
+    risk_bands = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
+    severity_distribution = {}
+    technique_counts = {}
+    decoy_stats = {}
+    benign_total = 0
+    benign_clean = 0
+
+    for incident in incidents:
+        band = attack_dna.risk_to_confidence_band(incident["risk_score"])
+        risk_bands[band] = risk_bands.get(band, 0) + 1
+        alert = soc_alert.severity_for(incident["risk_score"], incident["behavior_sequence"])
+        severity = alert["severity"]
+        severity_distribution[severity] = severity_distribution.get(severity, 0) + 1
+        for technique in mitre.techniques_for_sequence(incident["behavior_sequence"]):
+            technique_id = technique["technique_id"]
+            technique_counts[technique_id] = technique_counts.get(technique_id, 0) + 1
+        is_benign = "ADMIN-ACTION" in incident["behavior_sequence"] and "AUTH-SSH" in incident["behavior_sequence"]
+        if is_benign:
+            benign_total += 1
+            if incident["risk_score"] < 45:
+                benign_clean += 1
+        decoy = incident.get("decoy_deployed")
+        if decoy:
+            interactions = db.get_decoy_interactions(incident["incident_id"])
+            stats = decoy_stats.setdefault(decoy, {"incidents": 0, "interactions": 0})
+            stats["incidents"] += 1
+            stats["interactions"] += len(interactions)
+
+    return {
+        "incident_count": len(incidents),
+        "risk_band_distribution": risk_bands,
+        "top_mitre_techniques": [
+            {"technique_id": key, "count": value}
+            for key, value in sorted(technique_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
+        ],
+        "decoy_usage_yield": [
+            {"decoy": key, **value}
+            for key, value in sorted(decoy_stats.items())
+        ],
+        "false_positive_control_rate": {
+            "eligible_benign_incidents": benign_total,
+            "clean_benign_incidents": benign_clean,
+            "rate": round(benign_clean / benign_total, 4) if benign_total else None,
+        },
+        "soc_severity_distribution": severity_distribution,
+    }
+
+
+@app.get("/events/stream")
+async def events_stream():
+    async def encoded():
+        async for message in event_stream.stream():
+            if isinstance(message, str):
+                yield message
+                continue
+            yield f"event: {message['event']}\ndata: {json.dumps(message['data'])}\n\n"
+
+    return StreamingResponse(
+        encoded(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
 @app.post("/reset")
-def reset():
+def reset(request: Request, x_mirage_reset_token: Optional[str] = Header(None)):
+    configured_token = os.environ.get("MIRAGE_RESET_TOKEN")
+    client_host = request.client.host if request.client else ""
+    local_client = client_host in {"127.0.0.1", "::1", "localhost", "testclient"}
+    if configured_token:
+        if x_mirage_reset_token != configured_token:
+            raise HTTPException(403, "reset authorization required")
+    elif not local_client:
+        raise HTTPException(403, "reset is local-only; configure MIRAGE_RESET_TOKEN for remote administration")
     db.init_db(reset=True)
+    event_stream.publish("reset", {"status": "reset"})
     return {"status": "reset"}
 
 

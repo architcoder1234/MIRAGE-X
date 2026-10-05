@@ -22,6 +22,7 @@ import common  # noqa: E402
 
 # Fake MySQL-ish handshake packet (not protocol-accurate — just plausible bytes)
 FAKE_GREETING = b"\x4a\x00\x00\x00\x0a5.7.44-log\x00"
+MAX_CLIENT_BYTES = 64 * 1024
 
 
 def handle_client(conn, addr, incident_id, decoy_name):
@@ -30,11 +31,16 @@ def handle_client(conn, addr, incident_id, decoy_name):
     try:
         conn.sendall(FAKE_GREETING)
         conn.settimeout(15)
+        total_bytes = 0
         while True:
             data = conn.recv(1024)
             if not data:
                 break
             received_any = True
+            total_bytes += len(data)
+            if total_bytes > MAX_CLIENT_BYTES:
+                db.log_decoy_interaction(incident_id, decoy_name, "INPUT_LIMIT_REACHED", src_ip)
+                break
             label = common.classify_data(data)
             db.log_decoy_interaction(incident_id, decoy_name, label, src_ip)
             print(f"[fake_db] {src_ip} -> {label}")

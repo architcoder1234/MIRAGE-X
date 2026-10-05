@@ -1,6 +1,5 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-pydantic>=2.9
-reportlab>=4.0
-pytest>=8.0
-anthropic>=0.40
+fastapi==0.141.1
+uvicorn[standard]==0.50.0
+pydantic==2.13.4
+reportlab==5.0.1
+anthropic==1.11.0

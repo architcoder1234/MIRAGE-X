@@ -29,6 +29,7 @@ Usage:
 import argparse
 import os
 import sys
+import socket
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from urllib.parse import parse_qs
@@ -61,6 +62,7 @@ background:#238636;color:white;cursor:pointer}
 </form></div></body></html>"""
 
 DENY_PAGE = b"<html><body style='font-family:sans-serif;color:#c00'>Invalid credentials.</body></html>"
+MAX_BODY_BYTES = 16 * 1024
 
 
 def _mask(password):
@@ -73,6 +75,10 @@ def _mask(password):
 class Handler(BaseHTTPRequestHandler):
     server_version = "Apache/2.4.41"  # plausible banner for nmap -sV / curl -I, not the real thing
     protocol_version = "HTTP/1.1"
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(10)
 
     def log_message(self, fmt, *args):
         pass  # suppress default stderr logging — we print our own [fake_admin_panel] lines
@@ -108,7 +114,14 @@ class Handler(BaseHTTPRequestHandler):
         src_ip = self.client_address[0]
         self._note_connection(src_ip)
 
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except (TypeError, ValueError):
+            self.send_error(400, "invalid content length")
+            return
+        if length < 0 or length > MAX_BODY_BYTES:
+            self.send_error(413, "request body too large")
+            return
         body = self.rfile.read(length) if length else b""
 
         if self.path == "/login":

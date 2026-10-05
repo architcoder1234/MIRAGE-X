@@ -19,13 +19,32 @@
     <div class="status-line" aria-live="polite">API: <span id="apiStatus">checking…</span></div>
     <div class="status-line" aria-live="polite">AI Advisor: <span id="llmStatus">checking…</span></div>
     <button id="alertsBtn" class="icon-btn" onclick="openAlerts()" aria-haspopup="dialog" title="Simulated SOC alert channel">🔔 Alerts <span id="alertsBadge" class="alerts-badge" hidden>0</span></button>
+    <button id="analyticsBtn" class="icon-btn" onclick="openAnalytics()" aria-haspopup="dialog" title="Open incident analytics">📊 Analytics</button>
+    <button id="fullDemoBtn" class="icon-btn" onclick="runFullDemo()" title="Run the guided end-to-end demo">▶ Full demo</button>
     <button id="helpBtn" class="icon-btn" onclick="startOnboarding()" aria-haspopup="dialog" title="Show the guided walkthrough again">❓ Help</button>
     <button id="settingsBtn" class="icon-btn" onclick="openSettings()" aria-haspopup="dialog" title="Settings & customization">⚙ Settings</button>
+  </div>
+
+  <!-- ANALYTICS MODAL -->
+  <div id="analyticsOverlay" class="modal-overlay" onclick="if(event.target===this) closeAnalytics()">
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="analyticsTitle">
+      <div class="modal-header">
+        <h2 id="analyticsTitle">Incident Analytics</h2>
+        <button class="icon-btn" onclick="closeAnalytics()" aria-label="Close analytics">✕</button>
+      </div>
+      <p class="beginner-note" data-beginner>Analytics summarize the incidents currently stored in MIRAGE-X memory. They are calculated from the same deterministic risk, MITRE, decoy, and SOC facts shown in each incident.</p>
+      <div id="analyticsBody" aria-live="polite"><div class="empty">Loading analytics…</div></div>
+    </div>
   </div>
 </header>
 
 <!-- TOASTS -->
 <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+<div id="backendBanner" class="backend-banner" role="status" aria-live="polite" hidden></div>
+<div id="demoCaption" class="demo-caption" role="status" aria-live="polite" hidden>
+  <span id="demoCaptionText"></span>
+  <button class="secondary-btn" onclick="skipFullDemo()">Skip demo</button>
+</div>
 
 <!-- SETTINGS MODAL -->
 <div id="settingsOverlay" class="modal-overlay" onclick="if(event.target===this) closeSettings()">
@@ -76,6 +95,13 @@
       <label for="apiKeyInput" class="sr-only">Anthropic API key</label>
       <input type="password" id="apiKeyInput" placeholder="sk-ant-..." onchange="saveSettings()" />
       <div id="keyStatus" class="setting-desc"></div>
+    </div>
+
+    <div class="modal-section">
+      <strong>Hosted reset token</strong>
+      <div class="setting-desc">Optional token for Reset Memory and Full Demo on hosted deployments. Kept for this browser session only.</div>
+      <label for="resetTokenInput" class="sr-only">MIRAGE reset token</label>
+      <input type="password" id="resetTokenInput" placeholder="MIRAGE_RESET_TOKEN" onchange="saveSettings()" />
     </div>
 
     <div class="modal-section">
